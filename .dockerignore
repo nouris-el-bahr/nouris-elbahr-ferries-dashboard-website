@@ -1,0 +1,11 @@
+.venv
+__pycache__
+**/__pycache__
+**/*.pyc
+backend/uploads
+dashboard/node_modules
+dashboard/.next
+.git
+.gitignore
+.DS_Store
+*.log

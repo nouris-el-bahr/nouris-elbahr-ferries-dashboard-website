@@ -1,3 +1,4 @@
+import os
 import shutil
 import sys
 import tempfile
@@ -26,7 +27,8 @@ from backend.sales_report import ReportConfig
 
 # ── App setup ──────────────────────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:3000"])
+_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000").split(",")
+CORS(app, origins=_cors_origins)
 
 UPLOAD_DIR = Path(__file__).parent / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

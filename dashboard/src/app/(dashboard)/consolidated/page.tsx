@@ -16,8 +16,6 @@ import {
   fetchSnapshots,
   setSelected,
 } from "@/store/slices/snapshotsSlice";
-import PathInput from "@/components/PathInput";
-import FileListDisplay from "@/components/FileListDisplay";
 import UploadProgress, { FileProgress } from "@/components/UploadProgress";
 import {
   AlertCircle,
@@ -49,14 +47,14 @@ export default function ConsolidatedPage() {
     }
 
     dispatch(setRunning(true));
-    dispatch(setPayError(null));
+    dispatch(setPayError(""));
     dispatch(clearResult());
 
     try {
-      setUploadProgress({ name: "Consolidation en cours...", progress: 0 });
+      setUploadProgress({ name: "Consolidation en cours...", progress: 0, size: 0, status: "uploading" });
 
       const formData = new FormData();
-      formData.append("snapshot_name", snaps.selected.stem);
+      formData.append("snapshot_name", snaps.selected);
       formData.append("invoice_file", invoiceFile);
       formData.append("fact_date", pay.factDate);
       formData.append("period_start", pay.periodStart);
@@ -134,7 +132,24 @@ export default function ConsolidatedPage() {
               Requis
             </span>
           </div>
-          <FileListDisplay files={snaps.list} selected={snaps.selected} onSelect={(f) => dispatch(setSelected(f))} />
+          {snaps.loading ? (
+              <p className="text-sm text-gray-400">Chargement…</p>
+            ) : (
+              <select
+                className="input-field"
+                value={snaps.selected}
+                onChange={(e) => dispatch(setSelected(e.target.value))}
+              >
+                {snaps.list.length === 0 && (
+                  <option value="">Aucun snapshot disponible</option>
+                )}
+                {snaps.list.map((s) => (
+                  <option key={s.name} value={s.name}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            )}
         </div>
 
         {/* Invoice Section */}
@@ -188,25 +203,34 @@ export default function ConsolidatedPage() {
           </button>
 
           {showInputs && (
-            <div className="space-y-4">
-              <PathInput
-                label="Date de Téléchargement (YYYY-MM-DD)"
-                value={pay.factDate}
-                onChange={(v) => dispatch(setFactDate(v))}
-                placeholder="2026-04-30"
-              />
-              <PathInput
-                label="Date de Début (YYYY-MM-DD)"
-                value={pay.periodStart}
-                onChange={(v) => dispatch(setPeriodStart(v))}
-                placeholder="2026-04-01"
-              />
-              <PathInput
-                label="Date de Fin (YYYY-MM-DD)"
-                value={pay.periodEnd}
-                onChange={(v) => dispatch(setPeriodEnd(v))}
-                placeholder="2026-04-16"
-              />
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="label">Date de Téléchargement</label>
+                <input
+                  type="date"
+                  className="input-field"
+                  value={pay.factDate}
+                  onChange={(e) => dispatch(setFactDate(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="label">Date de Début</label>
+                <input
+                  type="date"
+                  className="input-field"
+                  value={pay.periodStart}
+                  onChange={(e) => dispatch(setPeriodStart(e.target.value))}
+                />
+              </div>
+              <div>
+                <label className="label">Date de Fin</label>
+                <input
+                  type="date"
+                  className="input-field"
+                  value={pay.periodEnd}
+                  onChange={(e) => dispatch(setPeriodEnd(e.target.value))}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -222,17 +246,27 @@ export default function ConsolidatedPage() {
         {/* Progress */}
         {uploadProgress && (
           <div className="mb-6">
-            <UploadProgress files={[uploadProgress]} />
+            <UploadProgress files={[uploadProgress]} totalProgress={uploadProgress.progress} isComplete={false} />
           </div>
         )}
 
         {/* Result */}
-        {pay.result && (
-          <div className="mb-6 flex gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <CheckCircle2 className="text-green-600 flex-shrink-0" size={20} />
-            <div className="text-sm text-green-700">
-              <p className="font-medium">Facture consolidée générée avec succès !</p>
-              <p className="mt-1 text-xs text-green-600">Fichier: {pay.result.consolidated_file}</p>
+        {pay.result && pay.result.length > 0 && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-center gap-2 text-green-700 font-semibold mb-3">
+              <CheckCircle2 size={18} /> Facture consolidée générée avec succès !
+            </div>
+            <div className="space-y-2">
+              {pay.result.map((f) => (
+                <a
+                  key={f.name}
+                  href={api.getDownloadUrl(f.name, f.type)}
+                  download={f.name}
+                  className="flex items-center gap-2 text-sm text-purple-600 hover:text-purple-800 transition-colors"
+                >
+                  <Download size={14} /> {f.name}
+                </a>
+              ))}
             </div>
           </div>
         )}

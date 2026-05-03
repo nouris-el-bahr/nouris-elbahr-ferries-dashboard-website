@@ -85,16 +85,19 @@ export default function PaymentPage() {
     }
   };
 
-  // Archive the snapshot using folder path
+  // Archive the snapshot by uploading the actual browser File objects as FormData
   const archiveSnapshotFromFolder = async (): Promise<string> => {
-    if (!refFolderPath.trim()) {
-      throw new Error("Chemin du dossier requis");
-    }
-    if (!refDate) {
-      throw new Error("Date de la référence requise");
-    }
+    if (!refDate) throw new Error("Date de la référence requise");
+    if (!refFolderFiles || refFolderFiles.length === 0) throw new Error("Veuillez sélectionner un dossier");
 
-    const initialProgress: FileProgress[] = refFiles.map((f) => ({
+    const extensions = refFormat === "Csv" ? [".csv"] : [".xlsx", ".xls"];
+    const filesToUpload = refFolderFiles.filter((f) =>
+      extensions.includes(f.name.substring(f.name.lastIndexOf(".")).toLowerCase())
+    );
+    if (filesToUpload.length === 0)
+      throw new Error(`Aucun fichier ${refFormat === "Csv" ? "CSV" : "Excel"} trouvé dans le dossier`);
+
+    const initialProgress: FileProgress[] = filesToUpload.map((f) => ({
       name: f.name,
       size: f.size,
       progress: 0,
@@ -104,26 +107,20 @@ export default function PaymentPage() {
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+      const fd = new FormData();
+      filesToUpload.forEach((f) => fd.append("files", f));
+      fd.append("ref_date", refDate);
+      fd.append("format", refFormat);
 
-      const payload = JSON.stringify({
-        folder_path: refFolderPath,
-        ref_date: refDate,
-        format: refFormat,
-      });
-
-      // Simulate progress for each file
-      let currentFile = 0;
       xhr.upload.addEventListener("progress", (e) => {
-        if (e.lengthComputable && refFiles.length > 0) {
+        if (e.lengthComputable && filesToUpload.length > 0) {
           const totalPercent = (e.loaded / e.total) * 100;
           setRefUploadProgress(totalPercent);
-
-          // Update progress for each file
-          const fileIndex = Math.floor((totalPercent / 100) * refFiles.length);
+          const fileIndex = Math.floor((totalPercent / 100) * filesToUpload.length);
           setFileProgress((prev) =>
             prev.map((fp, idx) => ({
               ...fp,
-              progress: idx < fileIndex ? 100 : idx === fileIndex ? totalPercent % (100 / refFiles.length) * refFiles.length : 0,
+              progress: idx < fileIndex ? 100 : idx === fileIndex ? (totalPercent % (100 / filesToUpload.length)) * filesToUpload.length : 0,
               status: idx < fileIndex ? "done" : idx === fileIndex ? "uploading" : "pending",
             }))
           );
@@ -143,22 +140,21 @@ export default function PaymentPage() {
             resolve(response.name);
           }
         } else {
-          const errorData = JSON.parse(xhr.responseText);
-          reject(new Error(errorData.error ?? "Erreur de téléchargement"));
+          try {
+            const errorData = JSON.parse(xhr.responseText);
+            reject(new Error(errorData.error ?? "Erreur de téléchargement"));
+          } catch {
+            reject(new Error(`Erreur ${xhr.status}`));
+          }
         }
       });
 
-      xhr.addEventListener("error", () => {
-        reject(new Error("Erreur réseau lors du téléchargement"));
-      });
-
-      xhr.addEventListener("abort", () => {
-        reject(new Error("Téléchargement annulé"));
-      });
+      xhr.addEventListener("error", () => reject(new Error("Erreur réseau lors du téléchargement")));
+      xhr.addEventListener("abort", () => reject(new Error("Téléchargement annulé")));
 
       xhr.open("POST", `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000"}/api/snapshots/upload`);
-      xhr.setRequestHeader("Content-Type", "application/json");
-      xhr.send(payload);
+      // Do NOT set Content-Type — browser must set it with the multipart boundary
+      xhr.send(fd);
     });
   };
 

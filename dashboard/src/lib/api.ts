@@ -24,6 +24,8 @@ export interface RunResult {
 }
 
 export const api = {
+  baseUrl: API_BASE,
+
   async getSnapshots(): Promise<Snapshot[]> {
     const res = await fetch(`${API_BASE}/api/snapshots`);
     if (!res.ok) throw new Error("Impossible de charger les snapshots");

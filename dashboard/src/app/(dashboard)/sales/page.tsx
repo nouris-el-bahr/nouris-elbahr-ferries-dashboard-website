@@ -76,7 +76,7 @@ export default function SalesPage() {
     dispatch(clearResult());
 
     try {
-      setUploadProgress({ name: "Rapport en cours…", progress: 0 });
+      setUploadProgress({ name: "Rapport en cours…", progress: 0, size: 0, status: "uploading" });
 
       const formData = new FormData();
       formData.append("download_date", sales.downloadDate);
@@ -245,7 +245,7 @@ export default function SalesPage() {
 
       {uploadProgress && (
         <div className="mb-6">
-          <UploadProgress files={[uploadProgress]} />
+          <UploadProgress files={[uploadProgress]} totalProgress={uploadProgress.progress} isComplete={false} />
         </div>
       )}
 
