@@ -250,9 +250,13 @@ def run_consolidated():
     fact_date    = request.form.get("fact_date", "")
     period_start = request.form.get("period_start", "")
     period_end   = request.form.get("period_end", "")
+    ref_date     = request.form.get("ref_date", fact_date)
     ref_format   = request.form.get("ref_format", "Csv")
     sales_format = request.form.get("sales_format", "Csv")
-    download_date = request.form.get("download_date", fact_date)
+    sales_download_date = request.form.get("sales_download_date", fact_date)
+    vat_suffix   = request.form.get("vat_suffix", ". Vat")
+    mode         = request.form.get("mode", "short")
+    only_checked_in = request.form.get("only_checked_in", "false").lower() == "true"
 
     tmp_ref   = _save_uploads_to_tmp(ref_files)
     tmp_sales = _save_uploads_to_tmp(sales_files)
@@ -263,17 +267,19 @@ def run_consolidated():
     try:
         # Build reference snapshot in-memory
         df_ref    = payment_report.load_reference_from_folder(str(tmp_ref), ref_format)
-        snap_name = ref_archive_name(fact_date, df_ref)
+        snap_name = ref_archive_name(ref_date, df_ref)
         tmp_csv_dir = Path(tempfile.mkdtemp())
         tmp_csv   = tmp_csv_dir / f"{snap_name}.csv"
         df_ref.to_csv(str(tmp_csv), sep=";", index=False)
 
-        # Run short sales report to produce SalesInvoice.xlsx
+        # Run sales report to produce SalesInvoice.xlsx
         cfg = ReportConfig(
             sales_folder    = str(tmp_sales),
-            download_date   = download_date or fact_date,
+            download_date   = sales_download_date or fact_date,
+            vat_suffix      = vat_suffix,
             format          = sales_format,
-            mode            = "short",
+            mode            = mode,
+            only_checked_in = only_checked_in,
         )
         sales_outputs = sales_report.run(cfg)
         sales_invoice_path = next(
