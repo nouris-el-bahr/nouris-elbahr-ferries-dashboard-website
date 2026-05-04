@@ -1,0 +1,253 @@
+================================================================================
+  ACTIVITY DIAGRAM — NOURIS EL BAHR FERRIES DASHBOARD
+  Backend: Flask (Gunicorn)  |  Frontend: Next.js  |  Proxy: Nginx
+================================================================================
+
+INFRASTRUCTURE
+──────────────
+  Browser  ──►  Nginx :80  ──►  /api/*  ──►  Flask :5000
+                             ──►  /*      ──►  Next.js :3000
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PAGE 1 — PAYMENT REPORT  (/payment)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  FRONTEND                          BACKEND                    STORAGE
+  ────────                          ───────                    ───────
+
+  [Open /payment page]
+       │
+       ▼
+  GET /api/snapshots ──────────────► list_snapshots()
+       │                                   │
+       │                             scan Data/Archive/
+       │                             Payment/Reference/*.csv
+       │                                   │
+       ◄── [ {name, filename}[] ] ─────────┘
+       │
+  Show snapshot <select> dropdown
+       │
+       ▼
+  ┌─ STEP 1: Archive a new snapshot (optional) ──────────────────────┐
+  │                                                                    │
+  │  User clicks "Browse folder"                                       │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  Browser reads files locally (webkitdirectory API)                 │
+  │       │                                                            │
+  │       ▼                                                            │
+  │  User clicks "List Files" → filter by CSV/Excel locally            │
+  │       │                                                            │
+  │  User sets Reference Date                                          │
+  │       │                                                            │
+  │  User clicks "Archive"                                             │
+  │       │                                                            │
+  │  POST /api/snapshots/upload ───────► upload_snapshot()             │
+  │  (FormData: files[], ref_date,              │                      │
+  │   format)                             load all CSVs into           │
+  │                                       single DataFrame             │
+  │                                             │                      │
+  │                                       generate snapshot name       │
+  │                                       (date + row range)           │
+  │                                             │                      │
+  │                                       save as .csv ───────────► Data/Archive/
+  │                                             │                  Payment/Reference/
+  │  ◄── {name, filename} ──────────────────────┘                      │
+  │       │                                                            │
+  │  Snapshot added to dropdown                                        │
+  └────────────────────────────────────────────────────────────────────┘
+       │
+       ▼
+  ┌─ STEP 2: Run Payment Report ─────────────────────────────────────┐
+  │                                                                    │
+  │  User selects snapshot from dropdown                               │
+  │  User uploads Invoice file (CSV/Excel)                             │
+  │  User sets: Fact Date, Period Start, Period End                    │
+  │       │                                                            │
+  │  User clicks "Générer le rapport de paiement"                      │
+  │       │                                                            │
+  │  POST /api/payment/run ────────────► run_payment()                 │
+  │  (FormData: snapshot_name,                  │                      │
+  │   invoice_file, fact_date,            load reference CSV           │
+  │   period_start, period_end)                 │                      │
+  │                                       load invoice file            │
+  │                                             │                      │
+  │                                       payment_report.run()         │
+  │                                       · merge reference + invoice  │
+  │                                       · group by agency/currency   │
+  │                                       · compute amounts            │
+  │                                       · generate Excel reports     │
+  │                                             │                      │
+  │                                       save .xlsx ──────────────► Data/Result/
+  │                                             │                   Payment/
+  │  ◄── {files: [{name, type}]} ───────────────┘                      │
+  │       │                                                            │
+  │  Show download links                                               │
+  └────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PAGE 2 — SALES REPORT  (/sales)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  FRONTEND                          BACKEND                    STORAGE
+  ────────                          ───────                    ───────
+
+  [Open /sales page]
+       │
+       ▼
+  User selects sales folder
+  (browser reads all files via webkitdirectory)
+       │
+       ▼
+  User sets:
+  · Download Date
+  · VAT Suffix
+  · Format (CSV / Excel)
+  · Mode (short / full)
+  · Only Checked-In toggle
+       │
+       ▼
+  User clicks "Générer le rapport de ventes"
+       │
+  POST /api/sales/run ────────────► run_sales()
+  (FormData: files[],                      │
+   download_date, vat_suffix,        save files to temp folder
+   format, mode,                           │
+   only_checked_in)                  sales_report.run(config)
+                                     · load all sales CSVs
+                                     · filter by checked-in if set
+                                     · compute commissions
+                                     · generate:
+                                       - SalesShort.xlsx
+                                       - SalesInvoice.xlsx
+                                       - Control report
+                                           │
+                                     cleanup temp folder
+                                           │
+                                     save .xlsx ─────────────► Data/Result/
+                                           │                    Sales/
+  ◄── {files: [{name, type}]} ─────────────┘
+       │
+  Show download links
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PAGE 3 — CONSOLIDATED INVOICE  (/consolidated)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  FRONTEND                          BACKEND                    STORAGE
+  ────────                          ───────                    ───────
+
+  [Open /consolidated page]
+       │
+       ▼
+  GET /api/snapshots ──────────────► list archived snapshots
+       │
+  Show snapshot <select>
+       │
+       ▼
+  User selects snapshot
+  User uploads Invoice file (required)
+  User uploads Sales file   (optional — auto-detects latest if empty)
+  User sets: Fact Date, Period Start, Period End
+       │
+       ▼
+  User clicks "Générer Facture Consolidée"
+       │
+  POST /api/consolidated/run ──────► run_consolidated()
+  (FormData: snapshot_name,                │
+   invoice_file, [sales_file],       load reference snapshot CSV
+   fact_date, period_start,                │
+   period_end)                       load invoice file
+                                           │
+                                     load sales file
+                                     (provided or latest auto-detected)
+                                           │
+                                     consolidated_invoice.run()
+                                     · merge payment amounts
+                                       by agency + currency
+                                     · merge sales commissions
+                                       and balances
+                                     · combine all bookings
+                                       (payment + sales systems)
+                                     · generate consolidated Excel
+                                           │
+                                     save .xlsx ─────────────► Data/Result/
+                                           │                    Payment/
+  ◄── {files: [{name, type}]} ─────────────┘
+       │
+  Show download links
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  PAGE 4 — RESULTS  (/)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  FRONTEND                          BACKEND                    STORAGE
+  ────────                          ───────                    ───────
+
+  [Open / page]
+       │
+       ▼
+  GET /api/results ────────────────► list_results()
+                                           │
+                                     scan Data/Result/Payment/*.xlsx
+                                     scan Data/Result/Sales/*.xlsx
+                                           │
+                                     detect type per file:
+                                     · "ConsolidatedInvoice" → consolidated
+                                     · Payment folder        → payment
+                                     · Sales folder          → sales
+                                           │
+  ◄── [{name, type, size, modified}] ──────┘
+       │
+  Display file list sorted by date
+       │
+       ▼
+  User clicks a file to download
+       │
+  GET /api/results/download ───────► download_result()
+  ?name=...&type=...                       │
+                                     resolve path by type:
+                                     · payment/consolidated → Payment/
+                                     · sales               → Sales/
+                                           │
+                                     security check (path traversal)
+                                           │
+  ◄── file (attachment) ───────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  DATA STORAGE LAYOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Data/
+  ├── Archive/
+  │   ├── Payment/
+  │   │   └── Reference/       ← reference snapshots (.csv)
+  │   └── Sales/               ← archived sales files
+  ├── Result/
+  │   ├── Payment/             ← payment + consolidated reports (.xlsx)
+  │   └── Sales/               ← sales reports (.xlsx)
+  ├── Settings/
+  │   ├── Agencies.xlsx        ← agency config (name, code, currency)
+  │   └── Users.xlsx           ← user/agent mapping
+  └── Test/                    ← raw input data
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  BACKEND API SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  GET  /api/health                  → { status: "ok" }
+  GET  /api/snapshots               → list reference snapshots
+  POST /api/snapshots/upload        → upload files → archive snapshot
+  POST /api/list-folder             → list CSV/Excel in a server folder
+  POST /api/payment/run             → generate payment report
+  POST /api/sales/run               → generate sales report
+  POST /api/consolidated/run        → generate consolidated invoice
+  GET  /api/results                 → list all generated output files
+  GET  /api/results/download        → download a generated file
+
+================================================================================
