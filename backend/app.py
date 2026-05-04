@@ -233,51 +233,75 @@ def run_sales():
 # ── Consolidated Invoice ───────────────────────────────────────────────────────
 @app.route("/api/consolidated/run", methods=["POST"])
 def run_consolidated():
-    snapshot_name = request.form.get("snapshot_name", "")
-    if not snapshot_name:
-        return jsonify({"error": "snapshot_name est requis"}), 400
+    ref_files   = request.files.getlist("ref_files")
+    sales_files = request.files.getlist("sales_files")
 
-    reff_csv = PAYMENT_REFERENCE_ARCHIVE_DIR / f"{snapshot_name}.csv"
-    if not reff_csv.exists():
-        return jsonify({"error": "Snapshot introuvable"}), 404
-
+    if not ref_files:
+        return jsonify({"error": "ref_files est requis"}), 400
     if "invoice_file" not in request.files:
         return jsonify({"error": "invoice_file est requis"}), 400
+    if not sales_files:
+        return jsonify({"error": "sales_files est requis"}), 400
 
     inv = request.files["invoice_file"]
     if not _ext_ok(inv.filename):
         return jsonify({"error": "Le fichier de facture doit être CSV ou Excel"}), 400
 
-    tmp_inv = UPLOAD_DIR / secure_filename(inv.filename)
-    inv.save(str(tmp_inv))
+    fact_date    = request.form.get("fact_date", "")
+    period_start = request.form.get("period_start", "")
+    period_end   = request.form.get("period_end", "")
+    ref_format   = request.form.get("ref_format", "Csv")
+    sales_format = request.form.get("sales_format", "Csv")
+    download_date = request.form.get("download_date", fact_date)
 
-    tmp_sales = None
-    if "sales_file" in request.files:
-        sales = request.files["sales_file"]
-        tmp_sales = UPLOAD_DIR / secure_filename(sales.filename)
-        sales.save(str(tmp_sales))
+    tmp_ref   = _save_uploads_to_tmp(ref_files)
+    tmp_sales = _save_uploads_to_tmp(sales_files)
+    tmp_inv   = UPLOAD_DIR / secure_filename(inv.filename)
+    inv.save(str(tmp_inv))
+    tmp_csv_dir = None
 
     try:
+        # Build reference snapshot in-memory
+        df_ref    = payment_report.load_reference_from_folder(str(tmp_ref), ref_format)
+        snap_name = ref_archive_name(fact_date, df_ref)
+        tmp_csv_dir = Path(tempfile.mkdtemp())
+        tmp_csv   = tmp_csv_dir / f"{snap_name}.csv"
+        df_ref.to_csv(str(tmp_csv), sep=";", index=False)
+
+        # Run short sales report to produce SalesInvoice.xlsx
+        cfg = ReportConfig(
+            sales_folder    = str(tmp_sales),
+            download_date   = download_date or fact_date,
+            format          = sales_format,
+            mode            = "short",
+        )
+        sales_outputs = sales_report.run(cfg)
+        sales_invoice_path = next(
+            (p for p in sales_outputs if "SalesInvoice" in Path(p).name), ""
+        )
+
+        # Run consolidated invoice
         outputs = consolidated_invoice.run(
-            reff_csv_path      = str(reff_csv),
-            reff_snapshot_name = snapshot_name,
+            reff_csv_path      = str(tmp_csv),
+            reff_snapshot_name = snap_name,
             fact_file_path     = str(tmp_inv),
-            fact_date          = request.form.get("fact_date", ""),
-            period_start       = request.form.get("period_start", ""),
-            period_end         = request.form.get("period_end", ""),
-            sales_invoice_path = str(tmp_sales) if tmp_sales else "",
+            fact_date          = fact_date,
+            period_start       = period_start,
+            period_end         = period_end,
+            sales_invoice_path = sales_invoice_path,
         )
         return jsonify({
             "success": True,
-            "consolidated_file": Path(outputs[0]).name,
-            "files": [{"name": Path(p).name, "type": "consolidated"} for p in outputs],
+            "files": [{"name": Path(p).name, "type": _detect_type(p)} for p in outputs],
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
+        shutil.rmtree(tmp_ref, ignore_errors=True)
+        shutil.rmtree(tmp_sales, ignore_errors=True)
         tmp_inv.unlink(missing_ok=True)
-        if tmp_sales:
-            tmp_sales.unlink(missing_ok=True)
+        if tmp_csv_dir:
+            shutil.rmtree(tmp_csv_dir, ignore_errors=True)
 
 
 # ── Results ────────────────────────────────────────────────────────────────────
